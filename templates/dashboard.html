@@ -1,0 +1,346 @@
+﻿{% extends "base.html" %}
+{% block title %}Dashboard - AI Image Enhancer{% endblock %}
+
+{% block body %}
+<div class="row g-4">
+    <div class="col-12">
+        <div class="d-flex align-items-center justify-content-between">
+            <div>
+                <h1 class="mb-0">Enhance Product Images</h1>
+                <p class="text-muted small mb-0">Fast upscaling, background cleanup, and smart denoise optimizer for e-commerce.</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}"><i class="bi bi-arrow-clockwise me-1"></i>Reset</a>
+                <button id="settingsBtn" class="btn btn-secondary"><i class="bi bi-gear me-1"></i>Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Left: Upload form -->
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-body d-flex flex-column">
+                <h5 class="card-title"><b>Upload Product Image</b></h5>
+                <p class="text-muted small mb-3">Recommended size: at least 1000×1000px. Transparent backgrounds supported.</p>
+
+                <form id="uploadForm" method="post" enctype="multipart/form-data" class="d-flex flex-column gap-3">
+                    <label for="fileDrop" class="dropzone" id="fileDrop">
+                        <div id="drop-area" class="border border-secondary rounded p-4 text-center">
+                            <p>Click here to select an image for enhancing</p>
+                            <input type="file" id="fileElem" accept="image/*" style="display:none">
+                            <button type="button" class="btn btn-primary" onclick="document.getElementById('fileElem').click()">Browse</button>
+                        </div>
+                        <input id="imageInput" type="file" name="image" accept="image/*" required>
+                    </label>
+
+                    <div class="row g-2">
+                        <div class="col-sm-6">
+                            <label class="form-label small">Width (px)</label>
+                            <input name="out_width" type="number" class="form-control form-control-sm" value="800" min="1">
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label small">Height (px)</label>
+                            <input name="out_height" type="number" class="form-control form-control-sm" value="800" min="1">
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="keep_aspect" name="keep_aspect" checked>
+                        <label class="form-check-label small" for="keep_aspect">Keep aspect ratio</label>
+                    </div>
+
+                    <div>
+                        <label class="form-label small">Method</label>
+                        <select class="form-select form-select-sm" name="method">
+                            <option value="auto">Auto (model if available, otherwise fallback)</option>
+                            <option value="model">Force model</option>
+                            <option value="fallback">Fallback (OpenCV)</option>
+                        </select>
+                    </div>
+
+                    <div class="d-grid mt-2">
+                        <button id="submitBtn" class="btn btn-primary" type="submit"><i class="bi bi-cloud-arrow-up me-1"></i>Enhance image</button>
+                    </div>
+
+                    <div class="mt-auto small text-muted">Tip: Upload clean product photos without text overlays for best results.</div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Preview -->
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center">
+                <h5 class="card-title"><b>Preview</b></h5>
+
+                {% if enhanced %}
+                <div class="preview-wrap w-100 d-flex flex-column align-items-center gap-3">
+                    <img id="enhancedPreview" src="{{ enhanced }}" class="img-fluid border rounded preview-image" style="max-height:520px;">
+                    <div class="d-flex gap-2">
+                        <a href="{{ url_for('download', filename=enhanced_filename) }}" class="btn btn-outline-primary"><i class="bi bi-download me-1"></i>Download</a>
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary"><i class="bi bi-plus-circle me-1"></i>Enhance another</a>
+                    </div>
+                    <small class="text-muted">Processed file: <code>{{ enhanced_filename }}</code></small>
+                </div>
+                {% else %}
+                <div class="placeholder-container w-100 text-center py-5">
+                    <i class="bi bi-image big-placeholder-icon"></i>
+                    <p class="text-muted">No image processed yet, upload an image to preview result here.</p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <a class="btn btn-outline-primary" href="#fileDrop" onclick="document.getElementById('imageInput').click(); return false;"><i class="bi bi-upload me-1"></i>Upload image</a>
+                        <a class="btn btn-light" href="{{ url_for('dashboard') }}">Example</a>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Example images (full width) -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-3"><b>Image Enhance (Example)</b></h6>
+                <div class="d-flex gap-30 align-items-center justify-content-center flex-wrap example-container">
+                    <figure class="text-center">
+                        <figcaption class="small mb-2">Before</figcaption>
+                        <img src="{{ url_for('static', filename='examples/example_before.png') }}" alt="Before" class="example-img">
+                    </figure>
+                    <figure class="text-center">
+                        <figcaption class="small mb-2">After</figcaption>
+                        <img src="{{ url_for('static', filename='examples/example_after.png') }}" alt="After" class="example-img">
+                    </figure>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Settings Sidebar -->
+<div id="settingsSidebar">
+    <div class="settings-header d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Settings</h5>
+        <button id="closeSettings" class="btn-close"></button>
+    </div>
+
+    <form id="settingsForm" class="settings-content">
+        <div class="mb-3 text-center">
+            <img id="profilePreview" src="{{ profile_pic_url }}" class="rounded-circle mb-2" width="100" height="100" alt="profile">
+            <input type="file" id="profileUpload" name="profile_pic" accept="image/*" style="display:none">
+            <div><button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="document.getElementById('profileUpload').click()">Change Picture</button></div>
+        </div>
+
+        <p><strong>Username:</strong> <span id="usernameDisplay">{{ username }}</span></p>
+
+        <div class="mb-3">
+            <label class="form-label small">Phone Number</label>
+            <input type="tel" id="phoneInput" name="phone" class="form-control" placeholder="Enter phone number" value="{{ phone }}">
+        </div>
+
+        <div class="d-grid gap-2">
+            <button type="submit" id="saveSettingsBtn" class="btn btn-success">Save</button>
+            <button type="button" id="cancelSettingsBtn" class="btn btn-outline-secondary">Cancel</button>
+        </div>
+    </form>
+</div>
+<div id="sidebarOverlay"></div>
+
+<style>
+    #settingsSidebar {
+        position: fixed;
+        top: 0;
+        right: -360px;
+        width: 360px;
+        height: 100%;
+        background: #fff;
+        border-left: 1px solid #ddd;
+        box-shadow: -3px 0 12px rgba(0,0,0,0.08);
+        transition: right 0.34s cubic-bezier(.2,.9,.2,1);
+        z-index: 1050;
+        padding: 20px;
+        overflow-y: auto;
+    }
+
+        #settingsSidebar.active {
+            right: 0;
+        }
+
+    #sidebarOverlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.32);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity .2s ease;
+        z-index: 1040;
+    }
+
+        #sidebarOverlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+    .big-placeholder-icon {
+        font-size: 4rem;
+        color: rgba(15,23,42,0.08);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Sidebar controls
+    const settingsBtn = document.getElementById("settingsBtn");
+    const settingsSidebar = document.getElementById("settingsSidebar");
+    const closeSettings = document.getElementById("closeSettings");
+    const sidebarOverlay = document.getElementById("sidebarOverlay");
+    const cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
+
+    function openSidebar() {
+        settingsSidebar.classList.add("active");
+        sidebarOverlay.classList.add("active");
+    }
+    function closeSidebar() {
+        settingsSidebar.classList.remove("active");
+        sidebarOverlay.classList.remove("active");
+    }
+
+    settingsBtn.addEventListener("click", openSidebar);
+    closeSettings.addEventListener("click", closeSidebar);
+    sidebarOverlay.addEventListener("click", closeSidebar);
+    cancelSettingsBtn.addEventListener("click", closeSidebar);
+
+    // Profile preview + settings save
+    const profileUpload = document.getElementById("profileUpload");
+    const profilePreview = document.getElementById("profilePreview");
+    const settingsForm = document.getElementById("settingsForm");
+    const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+
+    profileUpload.addEventListener("change", function () {
+        const file = this.files[0];
+        if (file && file.type.startsWith("image/")) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                profilePreview.src = e.target.result;
+            }
+            reader.readAsDataURL(file);
+        }
+    });
+
+    settingsForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        saveSettingsBtn.disabled = true;
+        saveSettingsBtn.textContent = "Saving...";
+
+        const fd = new FormData();
+        const phoneVal = document.getElementById("phoneInput").value || "";
+        fd.append("phone", phoneVal);
+
+        if (profileUpload.files && profileUpload.files[0]) {
+            fd.append("profile_pic", profileUpload.files[0]);
+        }
+
+        fetch("{{ url_for('save_settings') }}", {
+            method: "POST",
+            body: fd,
+            credentials: "same-origin"
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                // update UI
+                document.getElementById("usernameDisplay").textContent = data.username || document.getElementById("usernameDisplay").textContent;
+                document.getElementById("phoneInput").value = data.phone || "";
+                if (data.profile_pic_url) {
+                    profilePreview.src = data.profile_pic_url;
+                }
+                // show a flash-like message (temporary)
+                const msg = document.createElement("div");
+                msg.className = "alert alert-success mt-2";
+                msg.textContent = "Settings saved";
+                settingsForm.prepend(msg);
+                setTimeout(() => { msg.remove(); }, 2500);
+
+                // close sidebar after a moment
+                setTimeout(closeSidebar, 700);
+            } else {
+                alert(data.message || "Failed to save settings");
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert("Error saving settings");
+        })
+        .finally(() => {
+            saveSettingsBtn.disabled = false;
+            saveSettingsBtn.textContent = "Save";
+        });
+    });
+
+    // Drag & drop logic (same as before)
+    const dropArea = document.getElementById("drop-area");
+    const fileInput = document.getElementById("fileElem");
+    const input = document.getElementById("imageInput");
+    const form = document.getElementById("uploadForm");
+    const submitBtn = document.getElementById("submitBtn");
+
+    ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
+        if (dropArea) {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        }
+        document.body.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+    if (dropArea) {
+        ["dragenter", "dragover"].forEach(eventName => dropArea.addEventListener(eventName, () => dropArea.classList.add("bg-light"), false));
+        ["dragleave", "drop"].forEach(eventName => dropArea.addEventListener(eventName, () => dropArea.classList.remove("bg-light"), false));
+        dropArea.addEventListener("drop", handleDrop, false);
+    }
+
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        handleFiles(files);
+    }
+
+    if (fileInput) fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+
+    function handleFiles(files) {
+        if (files.length > 0) {
+            const file = files[0];
+            // Set the real imageInput (so the form submit will include it)
+            // If using two separate inputs, copy file into the visible input using DataTransfer
+            try {
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                input.files = dataTransfer.files;
+            } catch (err) {
+                // fallback: if DataTransfer not supported, just log
+                console.warn("DataTransfer not available, user must click Browse to upload.");
+            }
+
+            // optional quick preview
+            const reader = new FileReader();
+            reader.onload = e => {
+                const existing = document.querySelector('.placeholder-container');
+                if (existing) {
+                    existing.innerHTML = `<img src="${e.target.result}" class="img-fluid rounded" style="max-height:420px;">`;
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    // disable double submit on enhancement form
+    form.addEventListener('submit', () => {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="bi bi-cloud-arrow-up me-1"></i>Processing...';
+    });
+</script>
+{% endblock %}
