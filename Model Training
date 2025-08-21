@@ -1,1 +1,113 @@
+import os, zipfile
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
+import tensorflow as tf
+from tensorflow.keras import layers, models
 
+print("TensorFlow:", tf.__version__)
+print("GPU:", tf.config.list_physical_devices('GPU'))
+
+import zipfile, os
+from pathlib import Path
+
+# Path to your already uploaded dataset
+zip_path = "/content/a.zip"
+extract_path = "/content/Enchance_dataset"
+
+# Unzip dataset
+with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    zip_ref.extractall(extract_path)
+
+print("Extracted files/folders:", os.listdir(extract_path))
+
+# ---- STEP 2: Detect input/output subfolders ----
+# Point directly to where blurred/enhanced are located
+DATA_DIR = os.path.join(extract_path, "Enchance dataset", "Dataset")
+
+INPUT_CANDIDATES  = ["blurred", "blur", "input", "degraded"]
+TARGET_CANDIDATES = ["enhanced", "clean", "target", "sharp"]
+
+def find_subdir(root, candidates):
+    root_p = Path(root)
+    for name in candidates:
+        p = root_p / name
+        if p.exists():
+            return str(p)
+    return None
+
+inp_dir = find_subdir(DATA_DIR, INPUT_CANDIDATES)
+tgt_dir = find_subdir(DATA_DIR, TARGET_CANDIDATES)
+
+print("Input dir:", inp_dir)
+print("Target dir:", tgt_dir)
+
+assert inp_dir and tgt_dir, f"Dataset subfolders not found in {DATA_DIR}"
+
+IMG_SIZE = 128
+
+def load_images(path, size=IMG_SIZE):
+    images = []
+    for fname in os.listdir(path):
+        fpath = os.path.join(path, fname)
+        try:
+            img = Image.open(fpath).convert("RGB").resize((size, size))
+            images.append(np.array(img) / 255.0)
+        except:
+            pass
+    return np.array(images, dtype=np.float32)
+
+X = load_images(inp_dir)   # blurred
+Y = load_images(tgt_dir)   # enhanced
+
+print("X shape:", X.shape, "Y shape:", Y.shape)
+
+def build_model(img_size=IMG_SIZE):
+    inputs = layers.Input((img_size, img_size, 3))
+
+    # Encoder
+    c1 = layers.Conv2D(64, 3, activation="relu", padding="same")(inputs)
+    c1 = layers.Conv2D(64, 3, activation="relu", padding="same")(c1)
+    p1 = layers.MaxPooling2D((2, 2))(c1)
+
+    c2 = layers.Conv2D(128, 3, activation="relu", padding="same")(p1)
+    c2 = layers.Conv2D(128, 3, activation="relu", padding="same")(c2)
+    p2 = layers.MaxPooling2D((2, 2))(c2)
+
+    c3 = layers.Conv2D(256, 3, activation="relu", padding="same")(p2)
+    c3 = layers.Conv2D(256, 3, activation="relu", padding="same")(c3)
+    p3 = layers.MaxPooling2D((2, 2))(c3)
+
+    # Bottleneck
+    bn = layers.Conv2D(512, 3, activation="relu", padding="same")(p3)
+    bn = layers.Conv2D(512, 3, activation="relu", padding="same")(bn)
+
+    # Decoder
+    u3 = layers.UpSampling2D((2, 2))(bn)
+    u3 = layers.concatenate([u3, c3])
+    c4 = layers.Conv2D(256, 3, activation="relu", padding="same")(u3)
+
+    u2 = layers.UpSampling2D((2, 2))(c4)
+    u2 = layers.concatenate([u2, c2])
+    c5 = layers.Conv2D(128, 3, activation="relu", padding="same")(u2)
+
+    u1 = layers.UpSampling2D((2, 2))(c5)
+    u1 = layers.concatenate([u1, c1])
+    c6 = layers.Conv2D(64, 3, activation="relu", padding="same")(u1)
+
+    outputs = layers.Conv2D(3, (1, 1), activation="sigmoid")(c6)
+
+    model = models.Model(inputs, outputs)
+    return model
+
+model = build_model()
+model.compile(optimizer="adam", loss="mse", metrics=["mae"])
+model.summary()
+
+history = model.fit(
+    X, Y,
+    validation_split=0.1,
+    epochs=10,
+    batch_size=8
+)
